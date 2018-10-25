@@ -97,14 +97,14 @@ double theta = 0.05;
 #define SM_NUM 4
 #define MM_NUM 1
 #define BK_NUM (SM_NUM*MM_NUM)
-#define TD_NUM 128
+#define TD_NUM 1
 #define BT_NUM (BK_NUM*TD_NUM)
 #define RB_NUM (BT_NUM*BT_NUM)
 #define ITER_CAP 500
 Block PBlocks[BK_NUM], QBlocks[BK_NUM];
 int random_seq[TD_NUM * ITER_CAP];
 Block *dev_PBlocks, *dev_QBlocks;
-int* dev_seq[ITER_CAP];
+int* dev_seq;
 int* dev_flag;
 double* dev_PData[BK_NUM], *dev_QData[BK_NUM];
 double *dev_p_cache[BT_NUM], *dev_q_cache[BT_NUM];
@@ -113,7 +113,7 @@ vector<RatingEntry> Rblocks[BK_NUM*TD_NUM][BK_NUM*TD_NUM];
 RatingEntry* dev_rate_entries[RB_NUM];
 double entry_num[RB_NUM];
 int* dev_entry_num;
-int p_height, q_height;
+int p_height, q_height, t_p_height, t_q_height;
 
 void readTrainData();
 void initParas();
@@ -121,7 +121,7 @@ void allocCudaMem();
 void partitionP(int portion_num, int line_num,  Block * block_arr);
 void freeCudaMem();
 
-__global__ void MFkernel(Block* dev_PBlocks, Block* dev_QBlocks, double* dev_PData[], double* dev_QData[], double *dev_p_cache[],double *dev_q_cache[], int* dev_seq[], int*dev_entry_num, RatingEntry* dev_rate_entries[], int p_height, int q_height, int* dev_flag, int epoch, double yita, double theta)
+__global__ void MFkernel(Block* dev_PBlocks, Block* dev_QBlocks, double* dev_PData[], double* dev_QData[], double *dev_p_cache[],double *dev_q_cache[], int* dev_seq, int*dev_entry_num, RatingEntry* dev_rate_entries[], int p_height, int q_height, int* dev_flag, int epoch, double yita, double theta)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int tid = threadIdx.x;
@@ -152,7 +152,7 @@ __global__ void MFkernel(Block* dev_PBlocks, Block* dev_QBlocks, double* dev_PDa
 	{
 		//SGD
 	 	row = row_base + tid ;
-		col = col_base + dev_seq[iter][tid];
+		col = col_base + dev_seq[iter*TD_NUM+tid];
 		mini_b_idx = row*BT_NUM+col;
 		td_rate_entries = dev_rate_entries[mini_b_idx];
 		td_ele_num = dev_entry_num[mini_b_idx];
@@ -220,10 +220,10 @@ void readTrainData()
 		}
 		printf("row %d fini\n", i);
 	}
-	int p_height = (N+BK_NUM-1) / BK_NUM;
-	int q_height = (M+BK_NUM-1)/BK_NUM;
-	int t_p_height = (p_height+TD_NUM-1)/TD_NUM;
-	int t_q_height = (q_height+TD_NUM-1)/TD_NUM;
+	p_height = (N+BK_NUM-1) / BK_NUM;
+	q_height = (M+BK_NUM-1)/BK_NUM;
+	t_p_height = (p_height+TD_NUM-1)/TD_NUM;
+	t_q_height = (q_height+TD_NUM-1)/TD_NUM;
 
 	map<long, double>::iterator it; 
 	for(it=EntryM.begin(); it!=EntryM.end(); it++){
@@ -256,8 +256,6 @@ void readTrainData()
 }
 void initParas()
 {
-	p_height = (N+BK_NUM-1)/BK_NUM;
-	q_height = (M+BK_NUM-1)/BK_NUM;
 	partitionP(BK_NUM, N, PBlocks);
 	partitionP(BK_NUM, M, QBlocks);
 	int i, j;
@@ -283,6 +281,10 @@ void initParas()
 	{
 		random_shuffle(random_seq + i * TD_NUM, random_seq + (i + 1)*TD_NUM );
 	}
+	printf("debug...\n");
+	for(i = 0; i<10; i++){
+		printf("%d\t", random_seq[i]);
+	}
 
 }
 void allocCudaMem()
@@ -296,7 +298,7 @@ void allocCudaMem()
 		HANDLE_ERROR(cudaMalloc((void**) &(dev_QData[i]), sizeof(double) * (QBlocks[i].ele_num)));
 	}
 
-	HANDLE_ERROR(cudaMalloc((void**)&dev_seq, sizeof(int) * (TD_NUM * BK_NUM)) );
+	HANDLE_ERROR(cudaMalloc((void**)&dev_seq, sizeof(int) * (TD_NUM * ITER_CAP)) );
 	HANDLE_ERROR(cudaMalloc((void**)&dev_flag, sizeof(int) * (BK_NUM)) );
 
 	int j =0;
@@ -322,9 +324,13 @@ void allocCudaMem()
 		HANDLE_ERROR(cudaMemcpy( (dev_QData[i]), QBlocks[i].eles, sizeof(double) * (QBlocks[i].ele_num), cudaMemcpyHostToDevice));
 	}
 
+
 	HANDLE_ERROR(cudaMemcpy( (dev_seq), random_seq, sizeof(int) * (TD_NUM * ITER_CAP), cudaMemcpyHostToDevice));
 
-	HANDLE_ERROR(cudaMemcpy( (dev_entry_num), entry_num, sizeof(int) * (RB_NUM), cudaMemcpyHostToDevice));	
+////
+	HANDLE_ERROR(cudaMemcpy( (dev_entry_num), entry_num, sizeof(int) * (RB_NUM), cudaMemcpyHostToDevice));
+////
+
 	for(i = 0; i<BT_NUM; i++){
 		for(j = 0; j < BT_NUM; j++){
 			idx = i*(BT_NUM)+j;
@@ -400,6 +406,7 @@ int main(void)
 	printf("initParas Fini\n");
 	allocCudaMem();
 	printf("allocCudaMem Fini\n");
+	getchar();
 	MFkernel <<< SM_NUM, 1>>>(dev_PBlocks, dev_QBlocks, dev_PData, dev_QData, dev_p_cache,dev_q_cache,dev_seq, dev_entry_num, dev_rate_entries, p_height, q_height, dev_flag, 0, yita, theta);
 	printf("MFkernel Fini\n");
 	cudaDeviceSynchronize();
