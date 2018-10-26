@@ -100,7 +100,7 @@ double theta = 0.05;
 #define TD_NUM 128
 #define BT_NUM (BK_NUM*TD_NUM)
 #define RB_NUM (BT_NUM*BT_NUM)
-#define ITER_CAP 500
+#define ITER_CAP 20
 
 Block PBlocks[BK_NUM], QBlocks[BK_NUM];
 Block *dev_PBlocks, *dev_QBlocks;
@@ -177,7 +177,7 @@ __global__ void MFkernel(Block* dev_PBlocks, Block* dev_QBlocks, double* dev_PDa
 		td_rate_entries = dev_rate_entries[mini_b_idx];
 		td_ele_num = dev_entry_num[mini_b_idx];
 
-		printf("[%d]  row =%d  col=%d mini_b_idx=%d td_ele_num=%d\n", iden, row, col, mini_b_idx, td_ele_num);
+		//printf("[%d]  row =%d  col=%d mini_b_idx=%d td_ele_num=%d\n", iden, row, col, mini_b_idx, td_ele_num);
 
 /*
 		printf("++++++++++++++[%d]++++++++++++++\n", iden);
@@ -206,12 +206,13 @@ __global__ void MFkernel(Block* dev_PBlocks, Block* dev_QBlocks, double* dev_PDa
 			}
 		}
 		
-		printf("[%d] iter-fin=%d\n", iden, iter );
+		//printf("[%d] iter-fin=%d\n", iden, iter );
 		//Sync
 		__syncthreads();
 
 	}
-	
+
+	printf("FIN  %d  %d  %d %d\n", tid, bid, i, iden );
 
 }
 
@@ -479,7 +480,7 @@ int main(void)
 	//getchar();
 
 
-	MFkernel <<< SM_NUM, 1>>>(dev_PBlocks, dev_QBlocks, dev_PData_ptrs, dev_QData_ptrs, dev_p_cache_ptrs,dev_q_cache_ptrs,dev_seq, dev_entry_num, dev_rate_entry_ptrs, p_height, q_height, dev_flag, 0, yita, theta);
+	MFkernel <<< SM_NUM, TD_NUM>>>(dev_PBlocks, dev_QBlocks, dev_PData_ptrs, dev_QData_ptrs, dev_p_cache_ptrs,dev_q_cache_ptrs,dev_seq, dev_entry_num, dev_rate_entry_ptrs, p_height, q_height, dev_flag, 0, yita, theta);
 	printf("MFkernel Issued, entering sync\n");
 	cudaDeviceSynchronize();
 	printf("cudaDeviceSynchronize Fini\n");
